@@ -43,7 +43,7 @@ start() ->
 %% @end
 %%--------------------------------------------------------------------
 -spec stop() -> 'ok'.
-stop() -> 
+stop() ->
     exit(whereis('jonny5_sup'), 'shutdown'),
     'ok'.
 
@@ -60,6 +60,7 @@ start_deps() ->
                                                 ,'lager'
                                                 ,'whistle_amqp'
                                                 ,'whistle_couch'
+                                                ,'whistle_services'
                                                ]],
     'ok'.
 
@@ -76,5 +77,5 @@ declare_exchanges() ->
     _ = wapi_route:declare_exchanges(),
     _ = wapi_self:declare_exchanges(),
     _ = wapi_dialplan:declare_exchanges(),
-    _ = wapi_notifications:declare_exchanges(),     
+    _ = wapi_notifications:declare_exchanges(),
     wapi_self:declare_exchanges().
