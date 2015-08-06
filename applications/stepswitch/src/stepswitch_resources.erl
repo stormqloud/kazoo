@@ -700,7 +700,7 @@ build_account_dedicated_proxy(Proxy) ->
 %%
 %% @end
 %%--------------------------------------------------------------------
--type cache_property() :: tuple('db', ne_binary(), ne_binary()).
+-type cache_property() :: {'db', ne_binary(), ne_binary()}.
 -type wh_cache_props() :: [cache_property(),...] | [].
 
 -spec fetch_cache_origin(wh_json:objects(), ne_binary()) -> wh_cache_props().
