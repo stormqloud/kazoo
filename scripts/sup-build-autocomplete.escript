@@ -170,7 +170,8 @@ find_modules(Path) ->
         'false' -> [];
         'true' ->
             AccFiles = fun (File, Acc) -> [File|Acc] end,
-            filelib:fold_files(Path, ".+_maintenance\\.beam", true, AccFiles, [])
+            filelib:fold_files(Path, ".+_maintenance\\.beam", true, AccFiles, []),
+            filelib:fold_files(Path, ".+whapps_controller\\.beam", true, AccFiles, [])
             %% filelib:fold_files(Path, ".+\\.beam", true, AccFiles, [])
     end.
 
