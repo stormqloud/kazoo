@@ -221,7 +221,7 @@ set_owner(JObj) ->
 
 -spec get_owner(api_binary(), ne_binary()) ->
                        {'ok', wh_json:object()} |
-                       {'error', _}.
+                       {'error', any()}.
 get_owner('undefined', _) -> {'error', 'undefined'};
 get_owner(OwnerId, AccountId) ->
     AccountDb = wh_util:format_account_id(AccountId, 'encoded'),
@@ -327,16 +327,20 @@ settings_feature_keys(JObj) ->
     Brand = get_brand(JObj),
     Family = get_family(JObj),
     AccountId = wh_doc:account_id(JObj),
-    wh_json:foldl(
-      fun(Key, Value, Acc) ->
-              Type = wh_json:get_binary_value(<<"type">>, Value),
-              V = wh_json:get_binary_value(<<"value">>, Value),
-              FeatureKey = get_feature_key(Type, V, Brand, Family, AccountId),
-              maybe_add_feature_key(Key, FeatureKey, Acc)
-      end
-      ,wh_json:new()
-      ,FeatureKeys
-     ).
+    Keys =
+        wh_json:foldl(
+          fun(Key, Value, Acc) ->
+                  Type = wh_json:get_binary_value(<<"type">>, Value),
+                  V = wh_json:get_binary_value(<<"value">>, Value),
+                  FeatureKey = get_feature_key(Type, V, Brand, Family, AccountId),
+                  maybe_add_feature_key(Key, FeatureKey, Acc)
+          end
+          ,wh_json:new()
+          ,FeatureKeys
+         ),
+    wh_json:merge_jobjs(wh_json:from_list([{<<"account">>, get_line_key(Brand, Family)}])
+                        ,Keys
+                       ).
 
 -spec get_feature_key(ne_binary(), ne_binary(), binary(), binary(), ne_binary()) ->
                              api_object().
@@ -392,7 +396,7 @@ get_feature_key_type(Type, Brand, Family) ->
                              ).
 
 -spec get_user(ne_binary(), ne_binary()) -> {'ok', wh_json:object()} |
-                                            {'error', _}.
+                                            {'error', any()}.
 get_user(AccountId, UserId) ->
     AccountDb = wh_util:format_account_id(AccountId, 'encoded'),
     couch_mgr:open_cache_doc(AccountDb, UserId).
@@ -544,9 +548,15 @@ req_headers(Token) ->
          ,{"User-Agent", wh_util:to_list(erlang:node())}
         ]).
 
--spec get_cluster_id() -> 'undefined' | string().
+-spec get_cluster_id() -> string().
 get_cluster_id() ->
-    whapps_config:get_string(?MOD_CONFIG_CAT, <<"cluster_id">>).
+    case whapps_config:get_string(?MOD_CONFIG_CAT, <<"cluster_id">>) of
+        'undefined' ->
+            ClusterId = wh_util:rand_hex_binary(16),
+            {'ok', _JObj} = whapps_config:set_default(?MOD_CONFIG_CAT, <<"cluster_id">>, ClusterId),
+            wh_util:to_list(ClusterId);
+        ClusterId -> ClusterId
+    end.
 
 %%--------------------------------------------------------------------
 %% @private

@@ -10,14 +10,15 @@
 %%%-------------------------------------------------------------------
 -module(cf_endpoint).
 
--include("callflow.hrl").
-
 -export([get/1, get/2]).
 -export([flush_account/1, flush/2]).
 -export([build/2, build/3]).
 -export([create_call_fwd_endpoint/3
          ,create_sip_endpoint/3
         ]).
+
+-include("callflow.hrl").
+-include_lib("whistle/include/wapi_conf.hrl").
 
 -define(NON_DIRECT_MODULES, ['cf_ring_group', 'acdc_util']).
 
@@ -72,10 +73,10 @@
 %%--------------------------------------------------------------------
 -spec get(whapps_call:call()) ->
                  {'ok', wh_json:object()} |
-                 {'error', _}.
+                 {'error', any()}.
 -spec get(api_binary(), ne_binary() | whapps_call:call()) ->
                  {'ok', wh_json:object()} |
-                 {'error', _}.
+                 {'error', any()}.
 get(Call) -> get(whapps_call:authorizing_id(Call), Call).
 
 get('undefined', _Call) ->
@@ -454,8 +455,8 @@ create_endpoint_name(First, Last, _, _) -> <<First/binary, " ", Last/binary>>.
 %% Flush the callflow cache
 %% @end
 %%--------------------------------------------------------------------
--spec flush_account(ne_binary()) -> _.
--spec flush(ne_binary(), ne_binary()) -> _.
+-spec flush_account(ne_binary()) -> any().
+-spec flush(ne_binary(), ne_binary()) -> any().
 flush_account(AccountDb) ->
     ToRemove =
         wh_cache:filter_local(?CALLFLOW_CACHE, fun({?MODULE, Db, _Id}, _Value) ->
@@ -472,12 +473,15 @@ flush(Db, Id) ->
         [{<<"ID">>, Id}
          ,{<<"Database">>, Db}
          ,{<<"Rev">>, Rev}
-         ,{<<"Type">>, <<"device">>}
-         | wh_api:default_headers(<<"configuration">>, <<"doc_edited">>
-                                      ,?APP_NAME, ?APP_VERSION)
+         ,{<<"Type">>, kz_device:type()}
+         | wh_api:default_headers(<<"configuration">>
+                                  ,?DOC_EDITED
+                                  ,?APP_NAME
+                                  ,?APP_VERSION
+                                 )
         ],
     Fun = fun(P) ->
-                  wapi_conf:publish_doc_update('edited', Db, <<"device">>, Id, P)
+                  wapi_conf:publish_doc_update('edited', Db, kz_device:type(), Id, P)
           end,
     whapps_util:amqp_pool_send(Props, Fun).
 
@@ -522,20 +526,21 @@ build(Endpoint, Properties, Call) ->
     end.
 
 -spec should_create_endpoint(wh_json:object(), wh_json:object(), whapps_call:call()) ->
-                                          'ok' | {'error', _}.
+                                          'ok' | {'error', any()}.
 should_create_endpoint(Endpoint, Properties, Call) ->
     Routines = [fun maybe_missing_resource_type/3
                 ,fun maybe_owner_called_self/3
                 ,fun maybe_endpoint_called_self/3
                 ,fun maybe_endpoint_disabled/3
                 ,fun maybe_do_not_disturb/3
+                ,fun maybe_exclude_from_queues/3
                ],
     should_create_endpoint(Routines, Endpoint, Properties, Call).
 
 -type ep_routine_v() :: fun((wh_json:object(), wh_json:object(), whapps_call:call()) -> 'ok' | _).
 -type ep_routines_v() :: [ep_routine_v()].
 -spec should_create_endpoint(ep_routines_v(), wh_json:object(), wh_json:object(),  whapps_call:call()) ->
-                                          'ok' | {'error', _}.
+                                          'ok' | {'error', any()}.
 should_create_endpoint([], _, _, _) -> 'ok';
 should_create_endpoint([Routine|Routines], Endpoint, Properties, Call) when is_function(Routine, 3) ->
     case Routine(Endpoint, Properties, Call) of
@@ -659,6 +664,17 @@ maybe_do_not_disturb(Endpoint, _, _) ->
         'true' ->
             lager:info("do not distrub endpoint ~s", [wh_doc:id(Endpoint)]),
             {'error', 'do_not_disturb'}
+    end.
+
+-spec maybe_exclude_from_queues(wh_json:object(), wh_json:object(), whapps_call:call()) ->
+                                        'ok' |
+                                        {'error', 'exclude_from_queues'}.
+maybe_exclude_from_queues(Endpoint, _, Call) ->
+    case is_binary(whapps_call:custom_channel_var(<<"Queue-ID">>, Call))
+        andalso wh_json:is_true(<<"exclude_from_queues">>, Endpoint)
+    of
+        'false' -> 'ok';
+        'true' -> {'error', 'exclude_from_queues'}
     end.
 
 %%--------------------------------------------------------------------
@@ -941,7 +957,7 @@ create_sip_endpoint(Endpoint, Properties, #clid{}=Clid, Call) ->
 -spec maybe_get_t38(wh_json:object(), whapps_call:call()) -> wh_proplist().
 maybe_get_t38(Endpoint, Call) ->
     Opt =
-        case cf_endpoint:get(Call) of
+        case ?MODULE:get(Call) of
             {'ok', JObj} -> wh_json:is_true([<<"media">>, <<"fax_option">>], JObj);
             {'error', _} -> 'undefined'
         end,
@@ -1026,7 +1042,7 @@ get_sip_transport(SIPJObj) ->
         Transport -> Transport
     end.
 
--spec validate_sip_transport(_) -> api_binary().
+-spec validate_sip_transport(any()) -> api_binary().
 validate_sip_transport(<<"tcp">>) -> <<"tcp">>;
 validate_sip_transport(<<"udp">>) -> <<"udp">>;
 validate_sip_transport(<<"tls">>) -> <<"tls">>;

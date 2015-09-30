@@ -1,5 +1,5 @@
 %%%-------------------------------------------------------------------
-%%% @copyright (C) 2010-2014, 2600Hz INC
+%%% @copyright (C) 2010-2015, 2600Hz INC
 %%% @doc
 %%% Preforms maintenance operations against the stepswitch dbs
 %%% @end
@@ -18,9 +18,7 @@
 -export([cleanup_phone_numbers/0, cleanup_phone_numbers/1]).
 
 -export([create_phone_number/1, create_phone_number/2]).
-
 -export([activate_phone_number/1, activate_phone_number/2]).
-
 -export([create_and_activate_phone_number/2]).
 
 -include("wnm.hrl").
@@ -78,8 +76,8 @@ reconcile(Arg) ->
 %% in the accounts
 %% @end
 %%--------------------------------------------------------------------
--spec reconcile_numbers() -> 'no_return' | {'error', _}.
--spec reconcile_numbers(string() | ne_binary() | 'all') -> 'no_return' | {'error', _}.
+-spec reconcile_numbers() -> 'no_return' | {'error', any()}.
+-spec reconcile_numbers(string() | ne_binary() | 'all') -> 'no_return' | {'error', any()}.
 
 reconcile_numbers() ->
     reconcile_numbers('all').
@@ -139,8 +137,8 @@ reconcile_accounts(AccountId) ->
 %% exist
 %% @end
 %%--------------------------------------------------------------------
--spec reconcile_providers() -> _.
--spec reconcile_providers(ne_binaries(), ne_binaries()) -> _.
+-spec reconcile_providers() -> any().
+-spec reconcile_providers(ne_binaries(), ne_binaries()) -> any().
 reconcile_providers() ->
     Paths = filelib:wildcard([code:lib_dir('whistle_number_manager'), "/src/providers/*.erl"]),
     Mods = [wh_util:to_binary(filename:rootname(filename:basename(P))) || P <- Paths],
@@ -184,36 +182,68 @@ cleanup_phone_numbers(Account) ->
 %% @end
 %%--------------------------------------------------------------------
 -spec create_phone_number(ne_binary()) -> 'ok'.
+-spec create_phone_number(ne_binary(), ne_binary()) -> 'ok'.
+-spec create_phone_number(ne_binary(), ne_binary(), ne_binary()) ->
+                                 {'ok', wh_json:object()} |
+                                 {atom(), api_object()}.
 create_phone_number(Number) ->
-    { 'ok', AccountId } = whapps_util:get_master_account_id(),
+    {'ok', AccountId} = whapps_util:get_master_account_id(),
     create_phone_number(Number, AccountId).
 
--spec create_phone_number(ne_binary(), ne_binary()) -> 'ok'.
 create_phone_number(Number, AccountId) ->
-    { 'ok', SystemAccountId } = whapps_util:get_master_account_id(),
+    {'ok', SystemAccountId} = whapps_util:get_master_account_id(),
+    case create_phone_number(Number, AccountId, SystemAccountId) of
+        {'ok', JObj} ->
+            io:format("successfully created ~s: ~s~n"
+                      ,[Number, wh_json:encode(JObj)]
+                     );
+        {Error, Reason} ->
+            io:format("failed to create ~s: ~s: ~p~n"
+                      ,[Number, Error, Reason]
+                     )
+    end.
+
+create_phone_number(Number, AccountId, SystemAccountId) ->
     wh_number_manager:create_number(Number
-				       ,AccountId
-				       ,SystemAccountId
-				       ).
+                                    ,AccountId
+                                    ,SystemAccountId
+                                   ).
 
 -spec activate_phone_number(ne_binary()) -> 'ok'.
+-spec activate_phone_number(ne_binary(), ne_binary()) -> 'ok'.
+-spec activate_phone_number(ne_binary(), ne_binary(), ne_binary()) ->
+                                   {'ok', wh_json:object()} |
+                                   {atom(), api_object()}.
 activate_phone_number(Number) ->
-    { 'ok', AccountId } = whapps_util:get_master_account_id(),
+    {'ok', AccountId} = whapps_util:get_master_account_id(),
     activate_phone_number(Number, AccountId).
 
--spec activate_phone_number(ne_binary(), ne_binary()) -> 'ok'.
 activate_phone_number(Number, AccountId) ->
-    { 'ok', SystemAccountId } = whapps_util:get_master_account_id(),
+    {'ok', SystemAccountId} = whapps_util:get_master_account_id(),
+    case activate_phone_number(Number, AccountId, SystemAccountId) of
+        {'ok', JObj} ->
+            io:format("successfully activated ~s: ~s~n"
+                      ,[Number, wh_json:encode(JObj)]
+                     );
+        {Error, Reason} ->
+            io:format("failed to activate ~s: ~s: ~p~n"
+                      ,[Number, Error, Reason]
+                     )
+    end.
+
+activate_phone_number(Number, AccountId, SystemAccountId) ->
     wh_number_manager:assign_number_to_account(Number
-					      ,AccountId
-					      ,SystemAccountId
-					      ).
+                                               ,AccountId
+                                               ,SystemAccountId
+                                              ).
 
 -spec create_and_activate_phone_number(ne_binary(), ne_binary()) -> 'ok'.
 create_and_activate_phone_number(Number, AccountId) ->
-    _ = create_phone_number(Number, AccountId),
-    _ = activate_phone_number(Number, AccountId).
+    {'ok', SystemAccountId} = whapps_util:get_master_account_id(),
 
+    {'ok', _} = create_phone_number(Number, AccountId, SystemAccountId),
+    {'ok', JObj} = activate_phone_number(Number, AccountId, SystemAccountId),
+    io:format("created and activated number: ~s", [wh_json:encode(JObj)]).
 
 %%--------------------------------------------------------------------
 %% @private

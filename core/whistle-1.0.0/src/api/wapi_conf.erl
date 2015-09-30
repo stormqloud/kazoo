@@ -18,6 +18,8 @@
          ,publish_doc_update/5, publish_doc_update/6
          ,publish_doc_type_update/1, publish_doc_type_update/2
 
+         ,publish_db_update/3, publish_db_update/4
+
          ,get_account_id/1, get_account_db/1
          ,get_type/1, get_doc/1, get_id/1
          ,get_action/1, get_is_soft_deleted/1
@@ -28,16 +30,24 @@
 
 -include_lib("whistle/include/wh_api.hrl").
 -include_lib("whistle/include/wh_log.hrl").
+-include_lib("whistle/include/wapi_conf.hrl").
 
--define(CONF_DOC_UPDATE_HEADERS, [<<"ID">>, <<"Rev">>, <<"Database">>]).
--define(OPTIONAL_CONF_DOC_UPDATE_HEADERS, [<<"Account-ID">>, <<"Type">>, <<"Version">>
-                                           ,<<"Date-Modified">>, <<"Date-Created">>
-                                           ,<<"Doc">>, <<"Is-Soft-Deleted">>
+-define(CONF_DOC_UPDATE_HEADERS, [<<"ID">>, <<"Database">>]).
+-define(OPTIONAL_CONF_DOC_UPDATE_HEADERS, [<<"Account-ID">>
+                                           ,<<"Date-Created">>
+                                           ,<<"Date-Modified">>
+                                           ,<<"Doc">>
+                                           ,<<"Is-Soft-Deleted">>
+                                           ,<<"Rev">>
+                                           ,<<"Type">>
+                                           ,<<"Version">>
                                           ]).
 -define(CONF_DOC_UPDATE_VALUES, [{<<"Event-Category">>, <<"configuration">>}
-                                 ,{<<"Event-Name">>, [<<"doc_edited">>
-                                                      ,<<"doc_created">>
-                                                      ,<<"doc_deleted">>
+                                 ,{<<"Event-Name">>, [?DOC_EDITED
+                                                      ,?DOC_CREATED
+                                                      ,?DOC_DELETED
+                                                      ,<<"db_created">>
+                                                      ,<<"db_deleted">>
                                                      ]}
                                 ]).
 -define(CONF_DOC_UPDATE_TYPES, [{<<"ID">>, fun is_binary/1}
@@ -260,6 +270,14 @@ publish_doc_update(Action, Db, Type, Id, JObj) ->
 publish_doc_update(Action, Db, Type, Id, Change, ContentType) ->
     {'ok', Payload} = wh_api:prepare_api_payload(Change, ?CONF_DOC_UPDATE_VALUES, fun ?MODULE:doc_update/1),
     amqp_util:document_change_publish(Action, Db, Type, Id, Payload, ContentType).
+
+-spec publish_db_update(action(), ne_binary(), api_terms()) -> 'ok'.
+-spec publish_db_update(action(), ne_binary(), api_terms(), ne_binary()) -> 'ok'.
+publish_db_update(Action, Db, JObj) ->
+    publish_db_update(Action, Db, JObj, ?DEFAULT_CONTENT_TYPE).
+publish_db_update(Action, Db, Change, ContentType) ->
+    {'ok', Payload} = wh_api:prepare_api_payload(Change, ?CONF_DOC_UPDATE_VALUES, fun ?MODULE:doc_update/1),
+    amqp_util:document_change_publish(Action, Db, <<"database">>, Db, Payload, ContentType).
 
 -spec publish_doc_type_update(api_terms()) -> 'ok'.
 -spec publish_doc_type_update(api_terms(), ne_binary()) -> 'ok'.

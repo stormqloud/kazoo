@@ -39,9 +39,11 @@
 -export([maybe_add_expires_deviation/1, maybe_add_expires_deviation_ms/1]).
 
 -export([get_dial_separator/2]).
+-export([fix_contact/3]).
 
 -include_lib("whistle/src/api/wapi_dialplan.hrl").
 -include("ecallmgr.hrl").
+-include_lib("nksip/include/nksip.hrl").
 
 -define(HTTP_GET_PREFIX, "http_cache://").
 
@@ -297,8 +299,8 @@ unserialize_fs_array(_) -> [].
 varstr_to_proplist(VarStr) ->
     [to_kv(X, "=") || X <- string:tokens(wh_util:to_list(VarStr), ",")].
 
--spec get_setting(wh_json:key()) -> {'ok', term()}.
--spec get_setting(wh_json:key(), Default) -> {'ok', term() | Default}.
+-spec get_setting(wh_json:key()) -> {'ok', any()}.
+-spec get_setting(wh_json:key(), Default) -> {'ok', Default | any()}.
 get_setting(Setting) -> {'ok', ecallmgr_config:get(Setting)}.
 get_setting(Setting, Default) -> {'ok', ecallmgr_config:get(Setting, Default)}.
 
@@ -338,7 +340,7 @@ get_fs_kv(Key, Val, _) ->
                            ,ne_binary()
                           ) ->
                                   {ne_binary(), binary()} |
-                                  [{ne_binary(), binary()},...] | [] |
+                                  [{ne_binary(), binary()}] |
                                   'skip'.
 get_fs_key_and_value(<<"Hold-Media">>, Media, UUID) ->
     {<<"hold_music">>, media_path(Media, 'extant', UUID, wh_json:new())};
@@ -507,8 +509,8 @@ get_fs_kvs_fold({K, V}, Acc, UUID) ->
 -type bridge_channel() :: ne_binary().
 -type bridge_channels() :: ne_binaries().
 -type build_return() :: bridge_channel() | {'worker', pid()}.
--type build_returns() :: [build_return(),...] | [].
--type bridge_endpoints() :: [bridge_endpoint(),...] | [].
+-type build_returns() :: [build_return()].
+-type bridge_endpoints() :: [bridge_endpoint()].
 
 -spec build_bridge_string(wh_json:objects()) -> ne_binary().
 -spec build_bridge_string(wh_json:objects(), ne_binary()) -> ne_binary().
@@ -687,7 +689,7 @@ maybe_collect_worker_channel(Pid, Channels) ->
 
 -spec build_channel(bridge_endpoint() | wh_json:object()) ->
                            {'ok', bridge_channel()} |
-                           {'error', _}.
+                           {'error', any()}.
 build_channel(#bridge_endpoint{endpoint_type = <<"freetdm">>}=Endpoint) ->
     build_freetdm_channel(Endpoint);
 build_channel(#bridge_endpoint{endpoint_type = <<"skype">>}=Endpoint) ->
@@ -736,7 +738,7 @@ build_skype_channel(#bridge_endpoint{user=User, interface=IFace}) ->
 
 -spec build_sip_channel(bridge_endpoint()) ->
                                {'ok', bridge_channel()} |
-                               {'error', _}.
+                               {'error', any()}.
 build_sip_channel(#bridge_endpoint{failover=Failover}=Endpoint) ->
     Routines = [fun(C) -> maybe_clean_contact(C, Endpoint) end
                 ,fun(C) -> ensure_username_present(C, Endpoint) end
@@ -761,7 +763,7 @@ build_sip_channel(#bridge_endpoint{failover=Failover}=Endpoint) ->
 
 -spec maybe_failover(wh_json:object()) ->
                             {'ok', bridge_channel()} |
-                            {'error', _}.
+                            {'error', any()}.
 maybe_failover(Endpoint) ->
     case wh_util:is_empty(Endpoint) of
         'true' -> {'error', 'invalid'};
@@ -1025,7 +1027,7 @@ convert_whistle_app_name(App) ->
 -type media_types() :: 'new' | 'extant'.
 -spec lookup_media(ne_binary(), ne_binary(), wh_json:object(), media_types()) ->
                           {'ok', ne_binary()} |
-                          {'error', _}.
+                          {'error', any()}.
 lookup_media(MediaName, CallId, JObj, Type) ->
     case wh_cache:fetch_local(?ECALLMGR_UTIL_CACHE
                               ,?ECALLMGR_PLAYBACK_MEDIA_KEY(MediaName)
@@ -1040,7 +1042,7 @@ lookup_media(MediaName, CallId, JObj, Type) ->
 
 -spec request_media_url(ne_binary(), ne_binary(), wh_json:object(), media_types()) ->
                                {'ok', ne_binary()} |
-                               {'error', _}.
+                               {'error', any()}.
 request_media_url(MediaName, CallId, JObj, Type) ->
     Request = wh_json:set_values(
                 props:filter_undefined(
@@ -1110,12 +1112,12 @@ maybe_aggregate_headers(<<"Diversion">>, Diversion, Acc) ->
 maybe_aggregate_headers(K, V, Acc) ->
     [{K,V} | Acc].
 
--spec normalize_custom_sip_header_name(term()) -> term().
+-spec normalize_custom_sip_header_name(any()) -> any().
 normalize_custom_sip_header_name({<<"variable_sip_h_", K/binary>>, V}) -> {K, V};
 normalize_custom_sip_header_name({<<"sip_h_", K/binary>>, V}) -> {K, V};
 normalize_custom_sip_header_name(A) -> A.
 
--spec is_custom_sip_header(term()) -> boolean().
+-spec is_custom_sip_header(any()) -> boolean().
 is_custom_sip_header({<<"P-", _/binary>>, _}) -> 'true';
 is_custom_sip_header({<<"X-", _/binary>>, _}) -> 'true';
 is_custom_sip_header({<<"sip_h_", _/binary>>, _}) -> 'true';
@@ -1146,3 +1148,25 @@ get_dial_separator(JObj, Endpoints) ->
     get_dial_separator(wh_json:get_value(<<"Dial-Endpoint-Method">>, JObj, ?DIAL_METHOD_SINGLE)
                        ,Endpoints
                       ).
+
+-spec fix_contact(api_binary() | list(), ne_binary(), ne_binary()) -> api_binary().
+fix_contact('undefined', _, _) -> 'undefined';
+fix_contact(<<";", _/binary>> = OriginalContact, Username, Realm) ->
+    fix_contact(<<"sip:", Username/binary, "@", Realm/binary, OriginalContact/binary>>, Username, Realm);
+fix_contact(OriginalContact, Username, Realm)
+  when is_binary(OriginalContact) ->
+    fix_contact(binary:split(wh_util:strip_binary(OriginalContact), <<";">>, ['global']), Username, Realm);
+fix_contact([<<>> | Options], Username, Realm) ->
+    [<<"sip:", Username/binary, "@", Realm/binary>> | Options];
+fix_contact([Contact | Options], Username, Realm) ->
+    case nksip_parse_uri:uris(Contact) of
+        [#uri{user = <<>>, domain = <<>>}=Uri] ->
+            fix_contact([nksip_unparse:ruri(Uri#uri{user=Username, domain=Realm}) | Options], Username, Realm);
+        [#uri{user = <<>>}=Uri] ->
+            fix_contact([nksip_unparse:ruri(Uri#uri{user=Username}) | Options], Username, Realm);
+        [#uri{domain = <<>>}=Uri] ->
+            fix_contact([nksip_unparse:ruri(Uri#uri{domain=Realm}) | Options], Username, Realm);
+        [#uri{}=Uri] ->
+            list_to_binary([nksip_unparse:ruri(Uri)] ++ [<<";", Option/binary>> || Option <- Options]);
+        _Else -> 'undefined'
+    end.
